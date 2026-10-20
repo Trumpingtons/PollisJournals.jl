@@ -1,0 +1,52 @@
+name: Build journals
+
+# Every month: when OpenAlex has published a new snapshot of its sources, journals.parquet is built from it and
+# published as a release named after the snapshot's date, and Artifacts.toml is pointed to it, which Pollis
+# installs as the package's artifact.
+on:
+  schedule:
+    - cron: '0 6 2 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.12'
+      - run: pip install duckdb==1.5.3
+      - name: Latest snapshot
+        id: snapshot
+        run: |
+          date=$(curl -s https://openalex.s3.amazonaws.com/data/parquet/sources/manifest.json | python -c "import json,sys;print(json.load(sys.stdin)['date'])")
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+          if gh release view "$date" > /dev/null 2>&1; then echo "built=true" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - if: steps.snapshot.outputs.built != 'true'
+        run: python build/build.py out
+      - if: steps.snapshot.outputs.built != 'true'
+        name: Artifact
+        run: julia build/artifact.jl out "journals-$DATE.tar.gz" "https://github.com/${{ github.repository }}/releases/download/$DATE/journals-$DATE.tar.gz"
+        env:
+          DATE: ${{ steps.snapshot.outputs.date }}
+      - if: steps.snapshot.outputs.built != 'true'
+        name: Release
+        run: |
+          gh release create "$DATE" "journals-$DATE.tar.gz" --title "OpenAlex snapshot of $DATE" --notes "The journals of OpenAlex (CC0), from its snapshot of $DATE." --latest
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Artifacts.toml
+          git commit -m "Journals of the OpenAlex snapshot of $DATE"
+          git push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATE: ${{ steps.snapshot.outputs.date }}

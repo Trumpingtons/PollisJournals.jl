@@ -1,6 +1,6 @@
 [journals]
-git-tree-sha1 = "b4e4365dafb756ca74bd6a44e9dd9097bbd7a7da"
+git-tree-sha1 = "302905c0f2cad844edca1a0e41fc3f34230e95bf"
 
     [[journals.download]]
-    sha256 = "9e33d3d35fbf123e71da4e48ce9c992b0cc0fad2228b893d3ce129d466563238"
-    url = "https://github.com/Trumpingtons/PollisJournals.jl/releases/download/2026-10-14/journals-2026-10-14.tar.gz"
+    sha256 = "d52210668b763e0917558b3b95d451e348704956fb09155158e715d9c8d3f45c"
+    url = "https://github.com/Trumpingtons/PollisJournals.jl/releases/download/2026-10-14/journals-2026-10-14-built-2026-10-20.tar.gz"

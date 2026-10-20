@@ -1,12 +1,19 @@
 name: Build journals
 
-# Every month: when OpenAlex has published a new snapshot of its sources, journals.parquet is built from it and
-# published as a release named after the snapshot's date, and Artifacts.toml is pointed to it, which Pollis
-# installs as the package's artifact.
+# Every month: when OpenAlex has published a new snapshot of its sources, journals.parquet is built from it, and
+# norwegian.parquet from the Norwegian register as it is that day, and both are published as a release named after
+# the snapshot's date, and Artifacts.toml is pointed to it, which Pollis installs as the package's artifact.
+# Run by hand with "rebuild", it builds the latest snapshot again even when its release exists, and adds the new
+# tarball to that release: each tarball is named after the day it was built, so an earlier one is never replaced.
 on:
   schedule:
     - cron: '0 6 2 * *'
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: Build the latest snapshot again, even when its release exists
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -28,25 +35,40 @@ jobs:
         run: |
           date=$(curl -s https://openalex.s3.amazonaws.com/data/parquet/sources/manifest.json | python -c "import json,sys;print(json.load(sys.stdin)['date'])")
           echo "date=$date" >> "$GITHUB_OUTPUT"
-          if gh release view "$date" > /dev/null 2>&1; then echo "built=true" >> "$GITHUB_OUTPUT"; fi
+          echo "built_on=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          if gh release view "$date" > /dev/null 2>&1; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            if [ "$REBUILD" != 'true' ]; then echo "built=true" >> "$GITHUB_OUTPUT"; fi
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
+          REBUILD: ${{ inputs.rebuild }}
       - if: steps.snapshot.outputs.built != 'true'
         run: python build/build.py out
       - if: steps.snapshot.outputs.built != 'true'
         name: Artifact
-        run: julia build/artifact.jl out "journals-$DATE.tar.gz" "https://github.com/${{ github.repository }}/releases/download/$DATE/journals-$DATE.tar.gz"
+        run: julia build/artifact.jl out "$TARBALL" "https://github.com/${{ github.repository }}/releases/download/$DATE/$TARBALL"
         env:
           DATE: ${{ steps.snapshot.outputs.date }}
+          TARBALL: journals-${{ steps.snapshot.outputs.date }}-built-${{ steps.snapshot.outputs.built_on }}.tar.gz
       - if: steps.snapshot.outputs.built != 'true'
         name: Release
         run: |
-          gh release create "$DATE" "journals-$DATE.tar.gz" --title "OpenAlex snapshot of $DATE" --notes "The journals of OpenAlex (CC0), from its snapshot of $DATE." --latest
+          notes="The journals of OpenAlex (CC0), from its snapshot of $DATE, and the journals and series of the Norwegian register (NLOD 2.0, HK-dir), as of $BUILT_ON."
+          if [ "$RELEASED" = 'true' ]; then
+            gh release upload "$DATE" "$TARBALL" --clobber
+            gh release edit "$DATE" --notes "$notes"
+          else
+            gh release create "$DATE" "$TARBALL" --title "OpenAlex snapshot of $DATE" --notes "$notes" --latest
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Artifacts.toml
-          git commit -m "Journals of the OpenAlex snapshot of $DATE"
+          git commit -m "Journals of the OpenAlex snapshot of $DATE, built on $BUILT_ON"
           git push
         env:
           GH_TOKEN: ${{ github.token }}
           DATE: ${{ steps.snapshot.outputs.date }}
+          BUILT_ON: ${{ steps.snapshot.outputs.built_on }}
+          RELEASED: ${{ steps.snapshot.outputs.released }}
+          TARBALL: journals-${{ steps.snapshot.outputs.date }}-built-${{ steps.snapshot.outputs.built_on }}.tar.gz
